@@ -12,7 +12,7 @@ const int LED_PIN = 13; // ใช้ LED ในตัวบอร์ดเป็
 
 // --- วัดแรงดันแบตเตอรี่ ---
 const int BAT_ADC_PIN = 35; // ขา ADC สำหรับอ่านแรงดันจาก voltage divider
-const float VOLTAGE_DIVIDER_RATIO = 100.0f / (470.0f + 100.0f); // R2 / (R1 + R2)
+const float VOLTAGE_DIVIDER_RATIO = 3.3f / (10.0f + 3.3f); // R2 / (R1 + R2) for R1=10k, R2=3.3k
 
 // --- สถิติ deltaV ---
 const int SAMPLE_WINDOW_SIZE = 255;
@@ -49,6 +49,10 @@ uint32_t pulseMsToUs(float ms) {
   return (uint32_t)(ms * 1000.0f + 0.5f);
 }
 
+int getValidSampleCount() {
+  return sampleCount;
+}
+
 // --- ฟังก์ชันช่วยเหลือสำหรับวัดแรงดันแบต ---
 float readBatteryVoltage() {
   int raw = analogRead(BAT_ADC_PIN);
@@ -57,24 +61,25 @@ float readBatteryVoltage() {
 }
 
 void updateDeltaStats() {
-  if (sampleCount == 0) {
+  int validSamples = getValidSampleCount();
+  if (validSamples == 0) {
     currentMean = 0.0f;
     currentStdDev = 0.0f;
     return;
   }
 
   float sum = 0.0f;
-  for (int i = 0; i < sampleCount; i++) {
+  for (int i = 0; i < validSamples; i++) {
     sum += deltaSamples[i];
   }
-  currentMean = sum / sampleCount;
+  currentMean = sum / validSamples;
 
   float sq = 0.0f;
-  for (int i = 0; i < sampleCount; i++) {
+  for (int i = 0; i < validSamples; i++) {
     float diff = deltaSamples[i] - currentMean;
     sq += diff * diff;
   }
-  currentStdDev = sqrt(sq / sampleCount);
+  currentStdDev = sqrt(sq / validSamples);
 }
 
 void addSample(float delta) {
@@ -125,6 +130,7 @@ bool triggerZap(void *) {
 String getLogSummaryHTML() {
   String html = "<h3>Abnormal Events</h3>";
   html += "<p>Mean diff.V: " + String(currentMean, 3) + " V, SD: " + String(currentStdDev, 3) + " V</p>";
+  html += "<p>Samples used: " + String(getValidSampleCount()) + " / " + String(SAMPLE_WINDOW_SIZE) + "</p>";
   if (logCount == 0) {
     html += "<p>No abnormal events logged yet.</p>";
   } else {
@@ -162,6 +168,7 @@ String getRawDataHTML() {
   html += "<div style='background:white;padding:20px;border-radius:16px;box-shadow:0 4px 10px rgba(0,0,0,0.15);'>";
   html += "<h2>Raw d.V Data</h2>";
   html += "<p>Mean d.V: " + String(currentMean, 3) + " V, SD: " + String(currentStdDev, 3) + " V</p>";
+  html += "<p>Calculated from measured samples only: " + String(getValidSampleCount()) + " / " + String(SAMPLE_WINDOW_SIZE) + "</p>";
   html += "<a class='button' href='/'>Back</a>";
   html += "<table><tr><th>#</th><th>d.V (V)</th></tr>";
   int index = sampleCount;
