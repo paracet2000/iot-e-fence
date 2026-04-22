@@ -14,3 +14,5 @@
 ## หมายเหตุ
 - หากต้องการ OTA ให้เชื่อมต่อ WiFi เดียวกับคอมพิวเตอร์
 - ค่า Pulse จำกัดไม่เกิน 5000us เพื่อความปลอดภัย
+## Repository
+- origin: https://github.com/paracet2000/iot-e-fence
