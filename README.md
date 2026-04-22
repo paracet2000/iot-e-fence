@@ -16,3 +16,7 @@
 - ค่า Pulse จำกัดไม่เกิน 5000us เพื่อความปลอดภัย
 ## Repository
 - origin: https://github.com/paracet2000/iot-e-fence
+
+## การ push git โดยใช้ PowerShell Script
+.\push-git.ps1 "update battery divider and sample stats"
+
