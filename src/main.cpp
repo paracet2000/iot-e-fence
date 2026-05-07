@@ -296,7 +296,7 @@ bool triggerZap(void *) {
 
 static const char log_summary_html[] PROGMEM = R"rawliteral(
 <h3>Abnormal Events</h3>
-<p>Mean diff.V: %MEAN_DV% V, SD: %STD_DEV% V</p>
+<p>Mean Diff: %MEAN_DV% , SD: %STD_DEV% </p>
 <p>Samples used: %VALID_SAMPLES% / %SAMPLE_WINDOW%</p>
 %BODY%
 )rawliteral";
@@ -310,9 +310,9 @@ static const char log_summary_table_open_html[] PROGMEM = R"rawliteral(
   <tr>
     <th style='border-bottom:1px solid #ddd; text-align:left;'>#</th>
     <th style='border-bottom:1px solid #ddd; text-align:left;'>Time</th>
-    <th style='border-bottom:1px solid #ddd; text-align:left;'>Idle V</th>
-    <th style='border-bottom:1px solid #ddd; text-align:left;'>Zap V</th>
-    <th style='border-bottom:1px solid #ddd; text-align:left;'>d.V</th>
+    <th style='border-bottom:1px solid #ddd; text-align:left;'>Idle</th>
+    <th style='border-bottom:1px solid #ddd; text-align:left;'>Zap</th>
+    <th style='border-bottom:1px solid #ddd; text-align:left;'>V</th>
   </tr>
 )rawliteral";
 
@@ -394,14 +394,14 @@ static const char raw_data_html[] PROGMEM = R"rawliteral(
   </head>
   <body>
     <div style='background:white;padding:20px;border-radius:16px;box-shadow:0 4px 10px rgba(0,0,0,0.15);'>
-      <h2>Raw d.V Data</h2>
-      <p>Mean d.V: %MEAN_DV% V, SD: %STD_DEV% V</p>
+      <h2>Raw Data</h2>
+      <p>Mean: %MEAN_DV% , SD: %STD_DEV% </p>
       <p>Calculated from measured samples only: %VALID_SAMPLES% / %SAMPLE_WINDOW%</p>
       <a class='button' href='/'>Back</a>
       <table>
         <tr>
           <th>#</th>
-          <th>d.V (V)</th>
+          <th>V</th>
         </tr>
         %ROWS%
       </table>
@@ -440,12 +440,14 @@ String getRawDataHTML() {
 static const char schedule_status_html[] PROGMEM = R"rawliteral(
 <p><b>Active Window:</b> %ACTIVE_WINDOW%</p>
 %CLOCK_LINE%
-<p><b>Fence State:</b> %FENCE_STATE%</p>
+<p><b>Fence State:</b> %FENCE_STATE% | <b>Battery:</b> %BAT_VOLTAGE% V</p>
 )rawliteral";
 
 String getScheduleStatusHTML() {
  String html = FPSTR(schedule_status_html);
+ String batteryVoltage = String(readBatteryVoltage(), 2);
  html.replace("%ACTIVE_WINDOW%", formatMinuteOfDay(activeStartMinute) + " - " + formatMinuteOfDay(activeEndMinute));
+ html.replace("%BAT_VOLTAGE%", batteryVoltage);
  if (!hasTimeSync) {
  html.replace("%CLOCK_LINE%", "<p style='color:#c0392b;'><b>Clock:</b> waiting for client time sync</p>");
  html.replace("%FENCE_STATE%", "PAUSED");
@@ -521,7 +523,7 @@ static const char index_html[] PROGMEM = R"rawliteral(
     <p><b>ESP32 Time:</b> <span id="esp32-time">%ESP32_TIME%</span></p>
     %SCHEDULE_STATUS%
     <p><b>Battery Sensor Pin:</b> ADC%BAT_PIN%</p>
-    <a href="/raw"><button type="button">Show Raw d.V Data</button></a>
+    <a href="/raw"><button type="button">Raw Data</button></a>
     %LOG_SUMMARY%
     <hr />
     <form action="/save" method="POST"  onsubmit="return applyClientTime(this);">
