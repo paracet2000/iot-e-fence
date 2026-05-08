@@ -42,6 +42,7 @@ int32_t clientUtcOffsetMinutes = 0;
 uint32_t syncedEpochSeconds = 0;
 uint32_t syncMillisAt = 0;
 bool hasTimeSync = false;
+bool fencePaused = false;
 uint16_t touchBaseline = 0;
 uint16_t touchThreshold = 0;
 uint32_t touchPressedSince = 0;
@@ -50,6 +51,7 @@ WebServer server(80);
 Preferences pref;
 auto timer = timer_create_default();
 Timer<>::Task pulseTask;
+bool pulseTimerRunning = false;
 
 uint32_t pulseMsToUs(float ms) {
  return (uint32_t)(ms * 1000.0f + 0.5f);
@@ -211,10 +213,39 @@ bool isWithinActiveWindow(uint16_t minuteOfDay) {
 
 bool isFenceActiveNow() {
  if (!hasTimeSync) {
- return false;
+  return false;
  }
 
  return isWithinActiveWindow(getCurrentMinuteOfDay());
+}
+
+bool triggerZap(void *);
+
+bool shouldPulseRunNow() {
+ return !fencePaused && isFenceActiveNow();
+}
+
+void stopPulseTimer() {
+ if (!pulseTimerRunning) {
+  return;
+ }
+
+ timer.cancel(pulseTask);
+ pulseTimerRunning = false;
+}
+
+void startPulseTimer() {
+ if (pulseTimerRunning) {
+  return;
+ }
+
+ pulseTask = timer.every(intervalMs, triggerZap);
+ pulseTimerRunning = true;
+}
+
+void restartPulseTimer() {
+ stopPulseTimer();
+ startPulseTimer();
 }
 
 float readBatteryVoltage() {
@@ -263,9 +294,9 @@ void addLog(float v_idle, float v_zap, float delta) {
 }
 
 bool triggerZap(void *) {
- if (!isFenceActiveNow()) {
+ if (!shouldPulseRunNow()) {
  return true;
- }
+}
 
  uint32_t pulseUs = pulseMsToUs(pulseMs);
  float v_idle = readBatteryVoltage();
@@ -443,15 +474,27 @@ static const char schedule_status_html[] PROGMEM = R"rawliteral(
 <p><b>Fence State:</b> %FENCE_STATE% | <b>Battery:</b> %BAT_VOLTAGE% V</p>
 )rawliteral";
 
+String getFenceStateText() {
+ if (fencePaused) {
+  return "PAUSED (manual)";
+ }
+
+ if (!hasTimeSync) {
+  return "PAUSED (waiting for clock)";
+ }
+
+ return isFenceActiveNow() ? "ACTIVE" : "PAUSED (schedule)";
+}
+
 String getScheduleStatusHTML() {
  String html = FPSTR(schedule_status_html);
  String batteryVoltage = String(readBatteryVoltage(), 2);
  html.replace("%ACTIVE_WINDOW%", formatMinuteOfDay(activeStartMinute) + " - " + formatMinuteOfDay(activeEndMinute));
  html.replace("%BAT_VOLTAGE%", batteryVoltage);
  if (!hasTimeSync) {
- html.replace("%CLOCK_LINE%", "<p style='color:#c0392b;'><b>Clock:</b> waiting for client time sync</p>");
- html.replace("%FENCE_STATE%", "PAUSED");
- return html;
+  html.replace("%CLOCK_LINE%", "<p style='color:#c0392b;'><b>Clock:</b> waiting for client time sync</p>");
+  html.replace("%FENCE_STATE%", getFenceStateText());
+  return html;
  }
 
  String clockLine = "<p><b>Clock:</b> " + formatMinuteOfDay(getCurrentMinuteOfDay()) + " (client offset ";
@@ -461,7 +504,7 @@ String getScheduleStatusHTML() {
  clockLine += String(clientUtcOffsetMinutes);
  clockLine += " min)</p>";
  html.replace("%CLOCK_LINE%", clockLine);
- html.replace("%FENCE_STATE%", isFenceActiveNow() ? "ACTIVE" : "PAUSED");
+ html.replace("%FENCE_STATE%", getFenceStateText());
  return html;
 }
 
@@ -523,6 +566,11 @@ static const char index_html[] PROGMEM = R"rawliteral(
     <p><b>ESP32 Time:</b> <span id="esp32-time">%ESP32_TIME%</span></p>
     %SCHEDULE_STATUS%
     <p><b>Battery Sensor Pin:</b> ADC%BAT_PIN%</p>
+    <form action="/pause" method="POST" onsubmit="return applyClientTime(this);" style="display:inline-block; margin: 10px 0;">
+      <input type="hidden" name="client_epoch" value="0" />
+      <input type="hidden" name="tz_offset" value="0" />
+      <button type="submit">%PAUSE_BUTTON%</button>
+    </form>
     <a href="/raw"><button type="button">Raw Data</button></a>
     %LOG_SUMMARY%
     <hr />
@@ -542,8 +590,12 @@ static const char index_html[] PROGMEM = R"rawliteral(
     <script>
     function applyClientTime(form) {
     var now = new Date();
-    form.client_epoch.value = Math.floor(now.getTime() / 1000);
-    form.tz_offset.value = -now.getTimezoneOffset();
+    if (form.client_epoch) {
+      form.client_epoch.value = Math.floor(now.getTime() / 1000);
+    }
+    if (form.tz_offset) {
+      form.tz_offset.value = -now.getTimezoneOffset();
+    }
     return true;
     }
 
@@ -579,6 +631,7 @@ String getHTML() {
  html.replace("%SCHEDULE_STATUS%", getScheduleStatusHTML());
  html.replace("%BAT_PIN%", String(BAT_ADC_PIN));
  html.replace("%LOG_SUMMARY%", getLogSummaryHTML());
+ html.replace("%PAUSE_BUTTON%", fencePaused ? "Resume" : "Pause");
  html.replace("%START_TIME%", formatMinuteOfDay(activeStartMinute));
  html.replace("%STOP_TIME%", formatMinuteOfDay(activeEndMinute));
  return html;
@@ -647,11 +700,36 @@ void setup() {
   pref.putInt("tz_min", clientUtcOffsetMinutes);
  }
 
- timer.cancel(pulseTask);
- pulseTask = timer.every(intervalMs, triggerZap);
+ if (fencePaused) {
+  stopPulseTimer();
+ } else {
+  restartPulseTimer();
+ }
 
  server.send(200, "text/html", FPSTR(update_success_html));
- Serial.println("Settings saved and timer restarted.");
+ Serial.println(fencePaused ? "Settings saved while paused." : "Settings saved and timer restarted.");
+ });
+
+ server.on("/pause", HTTP_POST, []() {
+  uint32_t clientEpochSeconds = (uint32_t)server.arg("client_epoch").toInt();
+  int32_t tzOffsetMinutes = server.arg("tz_offset").toInt();
+  fencePaused = !fencePaused;
+  if (fencePaused) {
+   stopPulseTimer();
+   Serial.println("Fence pulse paused.");
+  } else {
+   if (clientEpochSeconds > 0) {
+    syncTimeFromClient(clientEpochSeconds, tzOffsetMinutes);
+    pref.putInt("tz_min", clientUtcOffsetMinutes);
+    Serial.println("Fence pulse resumed and time synced from client.");
+   } else {
+    Serial.println("Fence pulse resumed.");
+   }
+   startPulseTimer();
+  }
+
+  server.sendHeader("Location", "/");
+  server.send(303, "text/plain", "");
  });
 
  server.on("/raw", []() {
@@ -663,7 +741,7 @@ void setup() {
  ArduinoOTA.setHostname("Fence-ESP32");
  ArduinoOTA.begin();
 
- pulseTask = timer.every(intervalMs, triggerZap);
+ startPulseTimer();
 
  Serial.println(">>> System Ready! <<<");
  Serial.print("AP IP: ");
