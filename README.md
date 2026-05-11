@@ -20,3 +20,15 @@
 ## การ push git โดยใช้ PowerShell Script
 .\push-git.ps1 "update battery divider and sample stats"
 
+## OTA upload
+
+โปรเจกต์นี้ตั้งค่า OTA ไว้แล้ว โดย PlatformIO จะอัปโหลดไปที่ `192.168.4.1` ผ่าน `espota`
+
+ก่อนกด Upload:
+
+1. ให้เครื่องคอมพิวเตอร์เชื่อมต่อกับ WiFi ของบอร์ด `FENCE_PRO`
+2. ให้บอร์ดทำงานตามปกติและเปิด ArduinoOTA อยู่
+3. กด Upload ใน PlatformIO ได้เลย
+
+ถ้าต้องการเปลี่ยนปลายทาง OTA ให้แก้ `upload_port` ใน `platformio.ini`
+
